@@ -1,0 +1,6 @@
+S -> b | S S | S S S
+
+bb 1
+bbb 1
+a 0
+abb 0

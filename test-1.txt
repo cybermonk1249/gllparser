@@ -1,0 +1,7 @@
+S -> A S d | B S | 
+A -> a | c
+B -> a | b
+
+aad 1
+ab 1
+ad 1
