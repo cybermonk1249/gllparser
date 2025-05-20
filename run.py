@@ -62,6 +62,6 @@ def main(path: str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python3 check_cfg_words.py <input_file>")
+        print("Usage: python3 run.py <input_file>")
         sys.exit(1)
     main(sys.argv[1])
