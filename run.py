@@ -50,11 +50,13 @@ def read_file(fname: str) -> Tuple[str, List[Tuple[str, int]]]:
 def main(path: str):
     grammar_txt, pairs = read_file(path)
     grammar = grammar_to_dict(grammar_txt)
-    recognizer = GLLRecognizer(grammar, 'S')
+    # recognizer = GLLRecognizer(grammar, 'S')
 
+    print("============= RESULTS =============")
     print("  WORD".ljust(20), "EXPECTED", "ACTUAL", "OK?")
     print("-" * 40)
     for word, exp in pairs:
+        recognizer = GLLRecognizer(grammar, 'S')
         ok = recognizer.recognize(word)
         outcome = 1 if ok else 0
         match = "✓" if outcome == exp else "✗"
