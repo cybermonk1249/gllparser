@@ -52,15 +52,24 @@ def main(path: str):
     grammar = grammar_to_dict(grammar_txt)
     # recognizer = GLLRecognizer(grammar, 'S')
 
-    print("============= RESULTS =============")
+    passed = 0
+
+    print("\n=============== Test Cases ===============")
     print("  WORD".ljust(20), "EXPECTED", "ACTUAL", "OK?")
     print("-" * 40)
     for word, exp in pairs:
         recognizer = GLLRecognizer(grammar, 'S')
         ok = recognizer.recognize(word)
         outcome = 1 if ok else 0
-        match = "✓" if outcome == exp else "✗"
-        print(word.ljust(20), exp, "      →", outcome, "    ", match)
+        if outcome == exp:
+            match = "Y"
+            passed += 1
+        else:
+            match = "N"
+        print(word.ljust(20), exp, "       ", outcome, "    ", match)
+
+    print("\n=============== Summary ===============")
+    print(f"Passed {passed}/{len(pairs)} tests")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
