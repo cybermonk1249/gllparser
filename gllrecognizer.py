@@ -62,14 +62,14 @@ class GLLRecognizer:
                 )
                 continue
 
-            # prevent redundant processing of same state
-            state_key = (current_node.label, current_node.value, pos, None, 0)
+            # prevent redundant processing of this exact descriptor
+            state_key = (current_node.label, current_node.value, pos, prod, prod_idx)
             if state_key in self.U:
                 continue
             self.U.add(state_key)
 
             # queue all alternative productions for current non-terminal
-            for production in self.grammar.get(current_node.label, []):
+            for production in reversed(self.grammar.get(current_node.label, [])):
                 self.R.appendleft((current_node, pos, production, 0))
 
         # successful parse if start symbol covers full input length
@@ -89,12 +89,14 @@ class GLLRecognizer:
                 node.add_edge(child_node)
 
                 # schedule processing of non-terminal's productions
-                child_state = (child_node.label, child_node.value, pos, None, 0)
-                if child_state not in self.U:
-                    self.R.appendleft((child_node, pos, None, 0))
+                # child_state = (child_node.label, child_node.value, pos, None, 0)
+                # if child_state not in self.U:
+                #     self.R.appendleft((child_node, pos, None, 0))
+                for child_prod in reversed(self.grammar[symbol]):
+                    self.R.appendleft((child_node, pos, child_prod, 0))
 
                 # queue continuation after processing this non-terminal
-                self.R.appendleft((node, pos, prod, idx + 1))
+                self.R.append((node, pos, prod, idx + 1))
                 return
 
             # handle terminal symbols
@@ -111,11 +113,24 @@ class GLLRecognizer:
                     return
 
         # full production matched - record completion
+        # if (node, pos) not in self.P:
+        #     self.P.add((node, pos))
+        #     # propagate success to parent states
+        #     # for parent in node.parents:
+        #     #     self.R.append((parent, pos, None, 0))
         if (node, pos) not in self.P:
             self.P.add((node, pos))
-            # propagate success to parent states
+            # now that `node` really did consume up to `pos`, wake up
+            # exactly those callers who had paused at this child, at idx+1:
             for parent in node.parents:
-                self.R.append((parent, pos, None, 0))
+                # `parent` is a GSS node; its edges tell us which
+                # productions / indices were waiting here.
+                # We resume **exactly** one slot farther in their prods:
+                # (find all paused descriptors for this parent with prod and idx)
+                for (n_curr, p_pos, p_prod, p_idx, _) in list(self.U):
+                    if n_curr == parent.label and p_pos == parent.value:
+                        # schedule resumption at new input pos
+                        self.R.append((parent, pos, p_prod, p_idx + 1))
 
     # diagnostic display of gss structure
     def print_gss(self):
