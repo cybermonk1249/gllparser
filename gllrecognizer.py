@@ -1,146 +1,127 @@
-from collections import deque
+#!/usr/bin/env python3
+import sys
+from functools import lru_cache
 
-# node in graph-structured stack (gss) representing parser states
-class GSSNode:
-    def __init__(self, label, value):
-        self.label = label    # non-terminal symbol this node represents
-        self.value = value   # input position where node was created
-        self.edges = []      # successor nodes in the gss
-        self.parents = []    # predecessor nodes in the gss
+def grammar_to_dict(text: str) -> dict[str, list[list[str]]]:
+    """
+    Convert a multiline CFG (e.g.
+        S -> a B c | ε
+        B -> b | 
+    ) into a dict:
+        { 'S': [['a','B','c'], []], 'B': [['b'], []] }
+    An empty RHS (“ε”) is stored as [].
+    """
+    G = {}
+    for line in filter(None, (ln.strip() for ln in text.splitlines())):
+        if "->" not in line:
+            raise ValueError(f"Invalid rule (missing '->'): {line}")
+        lhs, rhs = (part.strip() for part in line.split("->", 1))
+        # split alternatives on '|'
+        prods = []
+        for alt in rhs.split("|"):
+            symbols = alt.strip().split()
+            prods.append(symbols if symbols else [])  # [] = ε
+        G[lhs] = prods
+    return G
 
-    # connect nodes bidirectionally to form graph structure
-    def add_edge(self, node):
-        if node not in self.edges:
-            self.edges.append(node)
-            node.parents.append(self)
+def read_file(path: str):
+    """
+    Reads <path>, splits at the first blank line:
+      - The first block is the grammar,
+      - after the blank, each line is “word label” (label 0 or 1).
+    Returns (grammar_text, list[(word,int)]).
+    """
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    # find first truly blank line
+    sep = next(
+        (i for i, ln in enumerate(lines) if ln.strip()==""), 
+        None
+    )
+    if sep is None:
+        raise ValueError("Need a blank line separating grammar and tests.")
+    grammar_txt = "\n".join(lines[:sep])
+    pairs = []
+    for ln in lines[sep+1:]:
+        ln = ln.strip()
+        if not ln: 
+            continue
+        w, lbl = ln.rsplit(maxsplit=1)
+        pairs.append((w, int(lbl)))
+    return grammar_txt, pairs
 
-    # display format for debugging
-    def __repr__(self):
-        return f"({self.label},{self.value})"
-
-# manages creation and storage of gss nodes
-class GSS:
-    def __init__(self):
-        self.nodes = {}
-        self.get_node("$", 0)  # initialize root node
-
-    # retrieve or create node with specific label/position combination
-    def get_node(self, label, value):
-        key = (label, value)
-        if key not in self.nodes:
-            self.nodes[key] = GSSNode(label, value)
-        return self.nodes[key]
-
-# core recognizer implementing gll algorithm
 class GLLRecognizer:
-    def __init__(self, grammar, start):
-        self.grammar = grammar  # parsing rules in cfg format
-        self.start = start      # root non-terminal to recognize
-        self.gss = GSS()        # graph-structured stack storage
-        self.U = set()          # tracked descriptors to prevent reprocessing
-        self.P = set()          # successful parse completions (node, end_pos)
-        self.R = deque()        # work queue for pending operations
-        self.debug = False      # toggle detailed output logging
+    """
+    Top-down, recursive CFG recogniser with:
+      • match_seq(prod,i,j): can prod list match inp[i:j]?
+      • can(nt,i,j): can nonterminal nt generate inp[i:j]?
+    Uses lru_cache and 'active' sets to break left recursion cycles.
+    """
+    def __init__(self, grammar: dict[str, list[list[str]]], start: str):
+        self.G     = grammar
+        self.start = start
 
-        # seed parser with initial state: start symbol at position 0
-        root = self.gss.get_node("$", 0)
-        start_node = self.gss.get_node(start, 0)
-        root.add_edge(start_node)
-        self.R.append((start_node, 0, None, 0))  # (node, pos, prod, prod_idx)
+    def recognize(self, inp: str) -> bool:
+        n = len(inp)
+        G = self.G
 
-    # main recognition driver for input string
-    def recognize(self, input):
-        n = len(input)
-        while self.R:
-            # extract next processing task from work queue
-            current_node, pos, prod, prod_idx = self.R.popleft()
+        # to break infinite loops on left recursion:
+        active_can = set()  
 
-            # handle mid-production processing continuation
-            if prod is not None:
-                self._continue_production(
-                    current_node, pos, prod, prod_idx, input, n
-                )
-                continue
+        @lru_cache(maxsize=None)
+        def match_seq(prod: tuple[str,...], i: int, j: int) -> bool:
+            """
+            prod is a tuple of symbols (each either a terminal string or a non-terminal key).
+            Return True iff prod matches exactly inp[i:j].
+            """
+            # 1) Empty production ⇒ matches only empty substring
+            if len(prod) == 0:
+                return i == j
 
-            # prevent redundant processing of this exact descriptor
-            state_key = (current_node.label, current_node.value, pos, prod, prod_idx)
-            if state_key in self.U:
-                continue
-            self.U.add(state_key)
+            # 2) Single‐symbol shortcut
+            if len(prod) == 1:
+                sym = prod[0]
+                if sym in G:
+                    # nonterminal ⇒ delegate to can()
+                    return can(sym, i, j)
+                # terminal ⇒ must exactly match one char
+                return (i + 1 == j) and (i < n) and (inp[i] == sym)
 
-            # queue all alternative productions for current non-terminal
-            for production in reversed(self.grammar.get(current_node.label, [])):
-                self.R.appendleft((current_node, pos, production, 0))
-
-        # successful parse if start symbol covers full input length
-        return any((node, n) in self.P 
-               for node in self.gss.nodes.values() 
-               if node.label == self.start)
-
-    # processes partial productions from work queue
-    def _continue_production(self, node, pos, prod, idx, input, max_len):
-        while idx < len(prod):
-            symbol = prod[idx]
-            
-            # handle non-terminal symbols
-            if symbol in self.grammar:
-                # create new parser state node
-                child_node = self.gss.get_node(symbol, pos)
-                node.add_edge(child_node)
-
-                # schedule processing of non-terminal's productions
-                # child_state = (child_node.label, child_node.value, pos, None, 0)
-                # if child_state not in self.U:
-                #     self.R.appendleft((child_node, pos, None, 0))
-                for child_prod in reversed(self.grammar[symbol]):
-                    self.R.appendleft((child_node, pos, child_prod, 0))
-
-                # queue continuation after processing this non-terminal
-                self.R.append((node, pos, prod, idx + 1))
-                return
-
-            # handle terminal symbols
-            else:
-                # match terminal against input stream
-                if pos < max_len and input[pos] == symbol:
-                    pos += 1
-                    idx += 1
-                # handle empty productions (epsilon)
-                elif symbol == "":
-                    idx += 1
-                # abort on mismatch
+            # 3) General case: split [i:j] into two parts at k, 
+            #    first symbol ↔ inp[i:k], rest ↔ inp[k:j]
+            first, *rest = prod
+            for k in range(i, j+1):
+                # match 'first' on inp[i:k]
+                if first in G:
+                    if not can(first, i, k):
+                        continue
                 else:
-                    return
+                    if not (i+1 == k and i < n and inp[i] == first):
+                        continue
+                # if that succeeded, match the remainder
+                if match_seq(tuple(rest), k, j):
+                    return True
+            return False
 
-        # full production matched - record completion
-        # if (node, pos) not in self.P:
-        #     self.P.add((node, pos))
-        #     # propagate success to parent states
-        #     # for parent in node.parents:
-        #     #     self.R.append((parent, pos, None, 0))
-        if (node, pos) not in self.P:
-            self.P.add((node, pos))
-            # now that `node` really did consume up to `pos`, wake up
-            # exactly those callers who had paused at this child, at idx+1:
-            for parent in node.parents:
-                # `parent` is a GSS node; its edges tell us which
-                # productions / indices were waiting here.
-                # We resume **exactly** one slot farther in their prods:
-                # (find all paused descriptors for this parent with prod and idx)
-                for (n_curr, p_pos, p_prod, p_idx, _) in list(self.U):
-                    if n_curr == parent.label and p_pos == parent.value:
-                        # schedule resumption at new input pos
-                        self.R.append((parent, pos, p_prod, p_idx + 1))
+        @lru_cache(maxsize=None)
+        def can(nt: str, i: int, j: int) -> bool:
+            """
+            Return True iff nonterminal `nt` can generate exactly inp[i:j].
+            We guard against left‐recursion by tracking 'active' calls.
+            """
+            # cycle‐break: if we're already trying can(nt,i,j), give up
+            if (nt, i, j) in active_can:
+                return False
+            active_can.add((nt, i, j))
 
-    # diagnostic display of gss structure
-    def print_gss(self):
-        print("graph-structured stack (gss):")
-        root = self.gss.get_node("$", 0)
-        print(f"root node: {root}")
-        for (label, value), node in self.gss.nodes.items():
-            if label == "$" and value == 0: continue
-            edges = ", ".join([f"({w.label},{w.value})" for w in node.edges])
-            parents = ", ".join([f"({p.label},{p.value})" for p in node.parents])
-            print(f"node ({label},{value})")
-            print(f"  edges   -> {edges}")
-            print(f"  parents <- {parents}")
+            # try every production of nt
+            for prod in G.get(nt, []):
+                if match_seq(tuple(prod), i, j):
+                    active_can.remove((nt, i, j))
+                    return True
+
+            active_can.remove((nt, i, j))
+            return False
+
+        # start must cover the full string
+        return can(self.start, 0, n)
