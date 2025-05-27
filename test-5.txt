@@ -1,0 +1,15 @@
+S -> a S b | A
+A -> a A | 
+
+ 1
+a 1
+b 0
+ab 1
+abb 0
+aabb 1
+aaab 1
+aaabb 1
+aabaa 0
+aaaaaaaaaabbbbbbbbb 1
+aaaaaaaaaabbbbbbbbbb 1
+aaaaaaaaaaabbbbbbbbbb 1

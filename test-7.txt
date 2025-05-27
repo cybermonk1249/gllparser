@@ -1,0 +1,19 @@
+S -> A | ¬ S | ( S ∧ S ) | ( S ∨ S ) | ( S → S ) | ( S ↔ S ) | ∀ V . S | ∃ V . S
+A -> P ( L ) | T = T
+L -> T | T , L
+T -> V | C | F ( L )
+V -> x | y | z
+P -> p | q | r
+F -> f | g | h
+C -> a | b | c
+
+p(a,b,c) 1
+¬∃x.∀y.(p(y,x)↔p(y,y)) 1
+a=b 1
+f(x)=r 0
+f(x)=c 1
+(∀z.p(z)→∃y.p(y)) 1
+∀z.p(z)→∃y.p(y) 0
+b 0
+(r(f(x),a,g(z))↔q(c)) 1
+q(b,c,) 0
