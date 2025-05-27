@@ -1,77 +1,47 @@
 from functools import lru_cache
 
 class GLLRecognizer:
-    """
-    Top-down, recursive CFG recogniser with:
-      • match_seq(prod,i,j): can prod list match inp[i:j]?
-      • can(nt,i,j): can nonterminal nt generate inp[i:j]?
-    Uses lru_cache and 'active' sets to break left recursion cycles.
-    """
     def __init__(self, grammar: dict[str, list[list[str]]], start: str):
-        self.G     = grammar
+        self.G = grammar
         self.start = start
 
     def recognize(self, inp: str) -> bool:
         n = len(inp)
         G = self.G
-
-        # to break infinite loops on left recursion:
-        active_can = set()  
+        active = set()
 
         @lru_cache(maxsize=None)
-        def match_seq(prod: tuple[str,...], i: int, j: int) -> bool:
-            """
-            prod is a tuple of symbols (each either a terminal string or a non-terminal key).
-            Return True iff prod matches exactly inp[i:j].
-            """
-            # 1) Empty production ⇒ matches only empty substring
-            if len(prod) == 0:
+        def match_seq(prod: tuple[str, ...], i: int, j: int) -> bool:
+            if not prod:
                 return i == j
-
-            # 2) Single‐symbol shortcut
             if len(prod) == 1:
                 sym = prod[0]
                 if sym in G:
-                    # nonterminal ⇒ delegate to can()
                     return can(sym, i, j)
-                # terminal ⇒ must exactly match one char
-                return (i + 1 == j) and (i < n) and (inp[i] == sym)
-
-            # 3) General case: split [i:j] into two parts at k, 
-            #    first symbol ↔ inp[i:k], rest ↔ inp[k:j]
+                return (i + 1 == j) and i < n and inp[i] == sym
             first, *rest = prod
-            for k in range(i, j+1):
-                # match 'first' on inp[i:k]
+            for k in range(i, j + 1):
                 if first in G:
                     if not can(first, i, k):
                         continue
                 else:
-                    if not (i+1 == k and i < n and inp[i] == first):
+                    if not (i + 1 == k and i < n and inp[i] == first):
                         continue
-                # if that succeeded, match the remainder
                 if match_seq(tuple(rest), k, j):
                     return True
             return False
 
         @lru_cache(maxsize=None)
         def can(nt: str, i: int, j: int) -> bool:
-            """
-            Return True iff nonterminal `nt` can generate exactly inp[i:j].
-            We guard against left‐recursion by tracking 'active' calls.
-            """
-            # cycle‐break: if we're already trying can(nt,i,j), give up
-            if (nt, i, j) in active_can:
+            # guard against left recursion
+            if (nt, i, j) in active:
                 return False
-            active_can.add((nt, i, j))
-
-            # try every production of nt
+            active.add((nt, i, j))
             for prod in G.get(nt, []):
                 if match_seq(tuple(prod), i, j):
-                    active_can.remove((nt, i, j))
+                    active.remove((nt, i, j))
                     return True
-
-            active_can.remove((nt, i, j))
+            active.remove((nt, i, j))
             return False
 
-        # start must cover the full string
         return can(self.start, 0, n)
