@@ -1,6 +1,7 @@
 import sys
 from typing import List, Tuple, Dict
 from gllrecognizer import GLLRecognizer
+# from tmp import GLLRecognizer
 
 def grammar_to_dict(grammar_str: str) -> dict[str, list[list[str]]]:
     grammar: dict[str, list[list[str]]] = {}
